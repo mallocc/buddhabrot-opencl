@@ -37,5 +37,8 @@
     <None Include="saxpy.c">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="kernel.cl">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

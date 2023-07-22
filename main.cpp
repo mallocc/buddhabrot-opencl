@@ -12,6 +12,9 @@
 #include <stdlib.h>  
 #include <time.h>
 #include <random>
+#include <filesystem>
+#include <omp.h>
+#include <chrono>
 
 #include "Log.h"
 
@@ -28,67 +31,90 @@
  * Mersenne Twister random number generator.
  *
  */
-double randf(const double range = 1.0, bool sign = false)
+float randf(const float minimum = 0.0, const float maximum = 1.0)
 {
 	std::random_device rd;
-	std::mt19937 gen(rd());
-	std::uniform_real_distribution<double> dis(0.0, 1.0);
-	return dis(gen) * range * (1.0 + (double)sign) - range * sign;
+	std::mt19937_64 gen(rd());
+	std::uniform_real_distribution<float> dis(0.0, 1.0);
+	return dis(gen) * (maximum - minimum) + minimum;
 }
 
-struct v3
-{
-	float x, y, z;
+template<class T>
+class Timer {
+public:
+	Timer() : totalDuration(0), numSamples(0) {}
 
-	v3 operator * (float a)
-	{
-		return v3(x * a, y * a, z * a);
-	}
-	v3 operator / (float a)
-	{
-		if (a > 0) { return v3(x / a, y / a, z / a); }
+	void start() {
+		startTime = std::chrono::high_resolution_clock::now();
 	}
 
+	void stop() {
+		auto endTime = std::chrono::high_resolution_clock::now();
+		auto duration = std::chrono::duration_cast<T>(endTime - startTime).count();
 
-	inline v3(float _x, float _y, float _z)
-	{
-		x = _x;
-		y = _y;
-		z = _z;
+		totalDuration.fetch_add(duration);
+		numSamples.fetch_add(1);
 	}
+
+	double getAverageTime() const {
+		if (numSamples == 0) {
+			return 0.0;
+		}
+		return static_cast<double>(totalDuration) / numSamples;
+	}
+
+	double getRemainingTime(int totalIterations, int completedIterations) const {
+		int remainingIterations = totalIterations - completedIterations;
+		if (remainingIterations <= 0) {
+			return 0.0;
+		}
+		double averageTime = getAverageTime();
+		return averageTime * remainingIterations;
+	}
+
+	double getAverageTimeInSecs() const {
+		return convertToSeconds(getAverageTime());
+	}
+
+	static double convertToSeconds(double duration) {
+		if (std::is_same<T, std::chrono::nanoseconds>::value) {
+			return duration / 1e9;
+		}
+		else if (std::is_same<T, std::chrono::microseconds>::value) {
+			return duration / 1e6;
+		}
+		else if (std::is_same<T, std::chrono::milliseconds>::value) {
+			return duration / 1e3;
+		}
+		else if (std::is_same<T, std::chrono::seconds>::value) {
+			return duration;
+		}
+		else if (std::is_same<T, std::chrono::minutes>::value) {
+			return duration * 60;
+		}
+		else if (std::is_same<T, std::chrono::hours>::value) {
+			return duration * 3600;
+		}
+		else {
+			return 0.0;
+		}
+	}
+
+
+private:
+	std::chrono::high_resolution_clock::time_point startTime;
+	std::atomic<long long> totalDuration;
+	std::atomic<int> numSamples;
 };
 
 
-static const int localWorkGroupSize = 256;
-static const int nt = 256 + 0;
-static const int testDataSize = localWorkGroupSize * nt;
-float dt = 1;
-float dtinc = dt / 10;
-float maxr = 10000;
-float maxm = 1;
-static const float eps = maxr / (100);
-float initpxlsize = 0.9;
-float pxlsize = initpxlsize;
-float brtness = 0.015;
-float brtnessinc = brtness / 10;
-const char* ker = "NBODYBH2";
-float zoom = 10;
-float zoominc = 0.5;
-int dustitr = 9;
-float maxspd = 3 + 0.25 * (nt - 64) / 64;
 
-cl_float4 mousepos = { 0.0f, 0.0f, 0.0f, 0.0f };
+static const int localNum = 1 << 17;
+static const int localSize = 1 << 9;
+static const int globalSize = localNum * localSize;
 
-v3 target = v3(0.0f, 0.0f, 0.0f);
 
-v3 partc = v3(1.0f, 0.9f, 0.9f);
-
-cl_float4 p[testDataSize];
-
-cl_float4 v[testDataSize];
-
-cl_mem pBuffer, vBuffer;
-
+const char* kernalFunc = "buddhabrot";
 cl_command_queue queue;
 cl_kernel kernel;
 std::vector<cl_device_id> deviceIds;
@@ -99,17 +125,47 @@ inline void CheckError(cl_int error);
 
 std::string filename = "output/test";
 
-int width = 360;
-int height = 360;
+const int width = 1024;
+const int height = 1024;
 int components = 1;
-float w = width / (2.0f * maxr);
-float h = height / (2.0f * maxr);
+
+const int histogram_size = width * height;
+cl_int histogram[histogram_size];
+cl_mem histogram_buf;
+
+const int inital_samples_size = globalSize;
+cl_float4 initial_samples[inital_samples_size];
+cl_mem initial_samples_buf;
+cl_uint seed = rand() * UINT_MAX;
+
+int iterations = 1000;
+cl_float2 v0 = { -2,-2 };
+cl_float2 v1 = { 2,2 };
 
 uint8_t* pixelData = new uint8_t[width * height * components];
 
+bool createDirectories(const std::string& filepath) {
+	std::filesystem::path path(filepath);
+
+	// Extract the directory path
+	std::filesystem::path directory = path.parent_path();
+
+	// Create directories recursively
+	try {
+		std::filesystem::create_directories(directory);
+	}
+	catch (const std::filesystem::filesystem_error& e) {
+		std::cerr << "Error creating directories: " << e.what() << std::endl;
+		return false;
+	}
+
+	return true;
+}
+
 // writes pixelData out to a PNG using stb_image_write.h
-static void writeToPNG(const std::string& filename, int w, int h, int c, uint8_t* data)
+void writeToPNG(const std::string& filename, int w, int h, int c, uint8_t* data)
 {
+	LOG("Writing out render to PNG image...");
 	auto time = currentISO8601TimeUTC();
 	std::replace(time.begin(),
 		time.end(),
@@ -120,43 +176,57 @@ static void writeToPNG(const std::string& filename, int w, int h, int c, uint8_t
 		ss << "img_" << time << ".png";
 	else
 		ss << filename << ".png";
-	LOG("Writing out render to PNG image: " + ss.str());
+	createDirectories(ss.str().c_str());
 	stbi_write_png(ss.str().c_str(), w, h, c, data, w * c);
 }
+
+
+static double smoothstep(double x, double minVal, double maxVal)
+{
+	// Ensure x is within the range [minVal, maxVal]
+	x = std::clamp((x - minVal) / (maxVal - minVal), 0.0, 1.0);
+
+	// Apply the smoothstep interpolation formula
+	return x * x * (3 - 2 * x);
+}
+
+static double smootherstep(double x, double minVal, double maxVal)
+{
+	return smoothstep(smoothstep(x, minVal, maxVal), minVal, maxVal);
+}
+
 
 static uint8_t sqrtColour(double x, double y, double gamma)
 {
 	return pow(x / y, 1.0 / gamma) * UCHAR_MAX;
 }
 
-void readData(int step)
+void readData()
 {
 	// Get the results back to the host
-	CheckError(clEnqueueReadBuffer(queue, pBuffer, CL_TRUE, 0,
-		sizeof(cl_float4) * testDataSize,
-		p,
+	CheckError(clEnqueueReadBuffer(queue, histogram_buf, CL_TRUE, 0,
+		sizeof(cl_int) * histogram_size,
+		histogram,
 		0, nullptr, nullptr));
 
-	for (int i = 0; i < width * height * components; ++i)
-		pixelData[i] = 0;
+	double minValue = *std::min_element(histogram, histogram + histogram_size);
+	double maxValue = *std::max_element(histogram, histogram + histogram_size);
+	// Subtract the minimum value and divide by the range
+	double range = maxValue - minValue;
 
-	for (int i = 0; i < testDataSize; i++)
-	{
-		int x = (p[i].s[0] - (-maxr)) * w;
-		int y = (p[i].s[1] - (-maxr)) * h;
+	double gamma = 2.5;
 
-		if (x >= 0 && x < width && y >= 0 && y < height)
-			pixelData[(y * width + x)] += p[i].s[3] * 2;
-	}
+	int componentOffset = 0;
+	for (int y = 0; y < height; ++y)
+		for (int x = 0; x < width; ++x)
+		{
+			double newValue = histogram[y * width + x];
+			for (int c = 0; c < components; ++c)
+				if (componentOffset == -1 || componentOffset == c)
+					pixelData[(y * width + x) * components + c] = pow(smoothstep((newValue - minValue) / range, 0.0f, 1.0f), 1.0 / gamma) * UCHAR_MAX;
+		}
 
-	double maxVal = 1;
-	for (int i = 0; i < w * h; ++i)
-		maxVal = std::max(maxVal, (double)pixelData[i]);
-
-	for (int i = 0; i < w * h; ++i)
-		pixelData[i] = sqrtColour(pixelData[i], maxVal, 2.0f);
-
-	writeToPNG(filename.empty() ? "" : filename + std::to_string(step), width, height, components, pixelData);
+	writeToPNG(filename.empty() ? "" : filename + std::to_string(0), width, height, components, pixelData);
 }
 
 std::string GetPlatformName(cl_platform_id id)
@@ -216,53 +286,33 @@ cl_program CreateProgram(const std::string& source,
 	return program;
 }
 
-inline void doCalc(int steps = 1)
+inline void execute()
 {
-	for (int i = 0; i < steps; ++i)
-	{
-		clSetKernelArg(kernel, 0, sizeof(float), &dt);
-		clSetKernelArg(kernel, 1, sizeof(float), &eps);
-		clSetKernelArg(kernel, 2, localWorkGroupSize * sizeof(cl_float4), nullptr);
-		clSetKernelArg(kernel, 3, sizeof(cl_mem), &pBuffer);
-		clSetKernelArg(kernel, 4, sizeof(cl_mem), &vBuffer);
-		clSetKernelArg(kernel, 5, sizeof(int), &testDataSize);
-		//	if (ker == "SBODY") 
-		clSetKernelArg(kernel, 6, sizeof(cl_float4), &mousepos);
+	std::cout << "inital_samples_size = " << inital_samples_size << std::endl;
 
-		cl_event eve;
-		const size_t globalWorkSize[] = { testDataSize, 0, 0 };
-		const size_t localWorkSize[] = { localWorkGroupSize, 0, 0 };
-		CheckError(clEnqueueNDRangeKernel(queue, kernel, 1,
-			nullptr,
-			globalWorkSize,
-			localWorkSize,
-			0, nullptr, &eve));
+	clSetKernelArg(kernel, 0, sizeof(cl_mem), &initial_samples_buf);
+	clSetKernelArg(kernel, 1, sizeof(cl_int), &inital_samples_size);
+	clSetKernelArg(kernel, 2, sizeof(cl_mem), &histogram_buf);
+	clSetKernelArg(kernel, 3, sizeof(cl_int), &width);
+	clSetKernelArg(kernel, 4, sizeof(cl_int), &height);
+	clSetKernelArg(kernel, 5, sizeof(cl_int), &iterations);
+	clSetKernelArg(kernel, 6, sizeof(cl_float2), &v0);
+	clSetKernelArg(kernel, 7, sizeof(cl_float2), &v1);
 
-		CheckError(clFlush(queue));
-	}
+	cl_event eve;
+	const size_t globalWorkSize[] = { globalSize, 0, 0 };
+	const size_t localWorkSize[] = { localSize, 0, 0 };
+	CheckError(clEnqueueNDRangeKernel(queue, kernel, 1,
+		nullptr,
+		globalWorkSize,
+		localWorkSize,
+		0, nullptr, &eve));
+
+	CheckError(clFlush(queue));
 }
 
 int main(int argc, char* argv[])
 {
-	srand(time(NULL));
-
-	for (int i = 0; i < testDataSize; ++i)
-	{
-		float a = randf() * 2 * 3.141; //((i % 2 + 1) * 1 * 3.141f);
-		float r = randf() * maxr;
-		float rinvr = maxspd;// (1 - r / 360) * 50;
-		p[i].s[0] = randf(1.0, true) * maxr;// rcos(a)* r;
-		p[i].s[1] = randf(1.0, true) * maxr; //sin(a) * r * 1;
-		p[i].s[2] = 0;
-		p[i].s[3] = 1; // randf() * 1;
-		v3 dir = { p[i].s[0], p[i].s[1], 0 };
-		float d = sqrt(dir.x * dir.x + dir.y * dir.y + 0.001);
-		v[i].s[0] = 0; // -dir.y / d * maxspd;
-		v[i].s[1] = 0; // dir.x / d * maxspd;
-		v[i].s[2] = 0;
-		v[i].s[3] = 0;
-	}
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 	cl_uint platformIdCount = 0;
 	clGetPlatformIDs(0, nullptr, &platformIdCount);
@@ -327,47 +377,146 @@ int main(int argc, char* argv[])
 	std::cout << "Context created" << std::endl;
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-
-	cl_program program = CreateProgram(LoadKernel("saxpy.c"),
+	cl_program program = CreateProgram(LoadKernel("kernel.cl"),
 		context);
 
-	CheckError(clBuildProgram(program, deviceIdCount, deviceIds.data(), nullptr, nullptr, nullptr));
+	std::cout << "clBuildProgram" << std::endl;
+	clBuildProgram(program, deviceIdCount, deviceIds.data(), nullptr, nullptr, nullptr);
 
-	kernel = clCreateKernel(program, ker, &error);
-	CheckError(error);
+	// Check for build errors and get the build log
+	cl_build_status buildStatus;
+	clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &buildStatus, NULL);
 
+	if (buildStatus != CL_BUILD_SUCCESS)
+	{
+		// Get the build log size
+		size_t buildLogSize;
+		clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &buildLogSize);
+
+		// Allocate memory for the build log
+		char* buildLog = (char*)malloc(buildLogSize);
+
+		// Get the build log
+		clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, buildLogSize, buildLog, NULL);
+
+		// Output the build log (error messages)
+		printf("OpenCL program build log:\n%s\n", buildLog);
+
+		// Free allocated memory
+		free(buildLog);
+	}
+
+	std::cout << "clCreateKernel" << std::endl;
+	kernel = clCreateKernel(program, kernalFunc, &error);
+
+	// Check for errors during kernel creation
+	if (error != CL_SUCCESS)
+	{
+		// Kernel creation failed, check the error code
+		std::cout << "Error creating kernel: " << error << std::endl;
+
+		// Get the size of the build log
+		size_t buildLogSize;
+		clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &buildLogSize);
+
+		// Allocate memory for the build log
+		char* buildLog = (char*)malloc(buildLogSize);
+
+		// Get the build log
+		clGetProgramBuildInfo(program, deviceIds[0], CL_PROGRAM_BUILD_LOG, buildLogSize, buildLog, NULL);
+
+		// Output the build log (error messages)
+		std::cout << "Build log: " << std::endl << buildLog << std::endl;
+
+		// Free allocated memory
+		free(buildLog);
+
+	}
+	else
+	{
+		// Get the function name using clGetKernelInfo
+		size_t functionNameSize;
+		error = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, 0, NULL, &functionNameSize);
+		if (error == CL_SUCCESS)
+		{
+			// Allocate memory for the function name
+			char* functionName = (char*)malloc(functionNameSize);
+
+			// Get the function name
+			error = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, functionNameSize, functionName, NULL);
+			if (error == CL_SUCCESS)
+			{
+				// Output the kernel function name
+				std::cout << "Kernel Function Name: " << functionName << std::endl;
+			}
+
+			// Free allocated memory
+			free(functionName);
+		}
+
+		// Additional error checking for clGetKernelInfo if needed
+		if (error != CL_SUCCESS)
+		{
+			std::cout << "Error getting kernel info: " << error << std::endl;
+		}
+	}
+
+	std::cout << "clCreateCommandQueue" << std::endl;
 	queue = clCreateCommandQueue(context, deviceIds[0],
 		0, &error);
 	CheckError(error);
 
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	srand(time(NULL));
+
+	std::cout << "Generating samples..." << std::endl;
+	Timer<std::chrono::milliseconds> timer;
+	timer.start();
+#ifndef _DEBUG
+#pragma omp parallel for num_threads(23)
+#endif
+	for (int i = 0; i < inital_samples_size; ++i)
+		initial_samples[i] = { randf(v0.x, v1.x), randf(v0.y, v1.y) };
+	timer.stop();
+	std::cout << "Sample generation took: " << timer.getAverageTimeInSecs() << "s" << std::endl;
 
 	// Prepare some test data
-
-	pBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-		sizeof(cl_float4) * (testDataSize),
-		p, &error);
+	std::cout << "clCreateBuffer - initial_samples_buf" << std::endl;
+	initial_samples_buf = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+		sizeof(cl_float2) * (inital_samples_size),
+		initial_samples, &error);
 	CheckError(error);
 
-	vBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-		sizeof(cl_float4) * (testDataSize),
-		v, &error);
+	std::cout << "clCreateBuffer - histogram_buf" << std::endl;
+	histogram_buf = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
+		sizeof(cl_int) * (histogram_size),
+		histogram, &error);
 	CheckError(error);
 
-	for (int i = 0; i < 500; ++i)
-	{
-		doCalc(25);
-		readData(i);
-	}
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	std::cout << "Processing samples..." << std::endl;
+	Timer<std::chrono::milliseconds> timerExecute;
+	timerExecute.start();
+	execute();
+	readData();
+	timerExecute.stop();
+	std::cout << "Processing samples took: " << timerExecute.getAverageTimeInSecs() << "s" << std::endl;
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	
+	std::cout << "Total time: " << timer.getAverageTimeInSecs() + timerExecute.getAverageTimeInSecs() << "s" << std::endl;
 
 	clReleaseCommandQueue(queue);
 
-	clReleaseMemObject(pBuffer);
-	clReleaseMemObject(vBuffer);
+	clReleaseMemObject(initial_samples_buf);
+	clReleaseMemObject(histogram_buf);
 
 	clReleaseKernel(kernel);
 
 	clReleaseContext(context);
+
 
 	return 0;
 }
