@@ -1,7 +1,7 @@
 // OpenCL Test 4.cpp : Defines the entry point for the console application.
 //
 
-#include <CL\cl.hpp>
+#include <CL\cl.h>
 #include <CL\opencl.h>
 #include <iostream>
 #include <vector>
