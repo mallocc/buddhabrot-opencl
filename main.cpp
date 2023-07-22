@@ -109,7 +109,7 @@ private:
 
 
 
-static const int localNum = 1 << 17;
+static const int localNum = 1 << 19;
 static const int localSize = 1 << 9;
 static const int globalSize = localNum * localSize;
 
@@ -125,8 +125,8 @@ inline void CheckError(cl_int error);
 
 std::string filename = "output/test";
 
-const int width = 1024;
-const int height = 1024;
+const int width = 128;
+const int height = 128;
 int components = 1;
 
 const int histogram_size = width * height;
@@ -134,9 +134,9 @@ cl_int histogram[histogram_size];
 cl_mem histogram_buf;
 
 const int inital_samples_size = globalSize;
-cl_float4 initial_samples[inital_samples_size];
+cl_uchar initial_samples[inital_samples_size];
 cl_mem initial_samples_buf;
-cl_uint seed = rand() * UINT_MAX;
+cl_uint seed = randf() * UINT_MAX;
 
 int iterations = 1000;
 cl_float2 v0 = { -2,-2 };
@@ -180,7 +180,6 @@ void writeToPNG(const std::string& filename, int w, int h, int c, uint8_t* data)
 	stbi_write_png(ss.str().c_str(), w, h, c, data, w * c);
 }
 
-
 static double smoothstep(double x, double minVal, double maxVal)
 {
 	// Ensure x is within the range [minVal, maxVal]
@@ -194,7 +193,6 @@ static double smootherstep(double x, double minVal, double maxVal)
 {
 	return smoothstep(smoothstep(x, minVal, maxVal), minVal, maxVal);
 }
-
 
 static uint8_t sqrtColour(double x, double y, double gamma)
 {
@@ -298,6 +296,7 @@ inline void execute()
 	clSetKernelArg(kernel, 5, sizeof(cl_int), &iterations);
 	clSetKernelArg(kernel, 6, sizeof(cl_float2), &v0);
 	clSetKernelArg(kernel, 7, sizeof(cl_float2), &v1);
+	clSetKernelArg(kernel, 8, sizeof(cl_uint), &seed);
 
 	cl_event eve;
 	const size_t globalWorkSize[] = { globalSize, 0, 0 };
@@ -470,21 +469,22 @@ int main(int argc, char* argv[])
 
 	srand(time(NULL));
 
-	std::cout << "Generating samples..." << std::endl;
 	Timer<std::chrono::milliseconds> timer;
+	std::cout << "Generating samples..." << std::endl;
 	timer.start();
 #ifndef _DEBUG
 #pragma omp parallel for num_threads(23)
 #endif
 	for (int i = 0; i < inital_samples_size; ++i)
-		initial_samples[i] = { randf(v0.x, v1.x), randf(v0.y, v1.y) };
+		initial_samples[i] = 0;// { 0, 0 };
+		//initial_samples[i] = { randf(v0.x, v1.x), randf(v0.y, v1.y) };
 	timer.stop();
 	std::cout << "Sample generation took: " << timer.getAverageTimeInSecs() << "s" << std::endl;
 
 	// Prepare some test data
 	std::cout << "clCreateBuffer - initial_samples_buf" << std::endl;
 	initial_samples_buf = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-		sizeof(cl_float2) * (inital_samples_size),
+		sizeof(cl_uchar) * (inital_samples_size),
 		initial_samples, &error);
 	CheckError(error);
 
@@ -505,7 +505,7 @@ int main(int argc, char* argv[])
 	std::cout << "Processing samples took: " << timerExecute.getAverageTimeInSecs() << "s" << std::endl;
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	
+
 	std::cout << "Total time: " << timer.getAverageTimeInSecs() + timerExecute.getAverageTimeInSecs() << "s" << std::endl;
 
 	clReleaseCommandQueue(queue);
