@@ -79,11 +79,11 @@
     <LibraryPath>F:\data\programming\OpenCLTest\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>include;include/glm;include/CL;$(IncludePath)</IncludePath>
+    <IncludePath>include;include/glm;include/CL;include/stb;$(IncludePath)</IncludePath>
     <LibraryPath>lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>include;include/glm;include/CL;$(IncludePath)</IncludePath>
+    <IncludePath>include;include/glm;include/CL;include/stb;$(IncludePath)</IncludePath>
     <LibraryPath>lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -125,7 +125,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>include;include/glm;include/CL;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;include/glm;include/CL;include/stb;</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
     </ClCompile>
@@ -144,7 +144,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>include;include/glm;include/CL;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;include/glm;include/CL;include/stb;</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <OpenMPSupport>true</OpenMPSupport>
     </ClCompile>
@@ -163,12 +163,9 @@
   <ItemGroup>
     <ClInclude Include="Log.h" />
     <ClInclude Include="CLManager.h" />
-    <ClInclude Include="stb_image.h" />
-    <ClInclude Include="stb_image_write.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="kernel.cl" />
-    <None Include="saxpy.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

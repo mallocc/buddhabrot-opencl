@@ -4,3 +4,6 @@
 [submodule "include/CL"]
 	path = include/CL
 	url = https://github.com/KhronosGroup/OpenCL-Headers.git
+[submodule "include/stb"]
+	path = include/stb
+	url = https://github.com/nothings/stb.git
