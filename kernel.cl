@@ -1,6 +1,6 @@
 
 
-#define MAX_ITERATIONS 1000
+#define MAX_ITERATIONS 5000
 
 uint xorshift32(uint* state) {
 	uint x = *state;
@@ -24,13 +24,14 @@ float complex_mag2(float2 a)
 }
 
 __kernel void buddhabrot(
-	__global uchar* inital_samples,
-	int inital_samples_size,
-	__global int* histogram,
-	int w, int h,
-	int iterations,
-	float2 v0, float2 v1,
-	uint seed
+	//__global uchar* inital_samples,
+	int inital_samples_size, // The size of the initial samples array
+	__global int* histogram, // The output histogram data
+	int w, int h, // Width and height of the output histogram
+	int iterations, // Maximum number of iterations to compute the Mandelbrot set
+	int iterations_min, // Minimum number of iterations to consider in the histogram
+	float2 v0, float2 v1, // Coordinates of the viewable complex plane
+	uint seed // Seed value for random number generation
 )
 {
 	// this is the sample id
@@ -66,10 +67,10 @@ __kernel void buddhabrot(
 	float2 z = c;
 
 	// classic mandelbrot formula
-	int iter = 0;
-	for (; iter < iterations && complex_mag2(z) < 4.0f; ++iter)
+	int iter = 0;	
+	for (float tmpX = 0.0f; iter < iterations && complex_mag2(z) < 4.0f; ++iter)
 	{
-		float tmpX = z.x; // Store the original value of z.x
+		tmpX = z.x; // Store the original value of z.x
 		z.x = c.x + (z.x * z.x - z.y * z.y);
 		z.y = c.y + (tmpX * z.y * 2.0f); // Use the original z.x value here
 
@@ -77,19 +78,18 @@ __kernel void buddhabrot(
 		orbit[iter] = z;
 	}
 
-	if (iter < iterations)
+	if (iter < iterations && iter >= iterations_min)
+	{
+		int x = 0, y = 0;
 		// accumulate the orbit historgram locally
 		for (int i = 0; i < iter; ++i)
 		{
-			float2 t = orbit[i];
 			// project back to screen space
-			int x = (t.x - v0.x) * windowSize.x;
-			int y = (t.y - v0.y) * windowSize.y;
+			x = (orbit[i].x - v0.x) * windowSize.x;
+			y = (orbit[i].y - v0.y) * windowSize.y;
 			// make sure it is in the viewable region
 			if (x >= 0 && x < w && y >= 0 && y < h)
-			{
 				histogram[y * w + x] += 1;
-				//atom_add(&histogram[y * w + x], 1);
-			}
 		}
+	}
 }
