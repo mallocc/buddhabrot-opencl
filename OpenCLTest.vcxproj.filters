@@ -21,6 +21,15 @@
     <ClInclude Include="CLManager.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="Complex.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Animator.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="randf.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="kernel.cl">
