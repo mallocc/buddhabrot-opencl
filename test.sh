@@ -1,0 +1,2 @@
+./x64/Release/buddhabrot-opencl.exe -bezier-enable -gen-in-region -w 256 -h 256 -s 1000000 -i 1000 -im 50 -o output/test -steps 30 -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629 -nc -b 10 -a 60 -nc -a 89 -b 89 -nc -b 90 -a 90 -nc -a 90.5 -b 90.5 -steps 120 -nc -x0 -2 -y0 -1.5 -x1 1 -y1 1.5 -a 0 -b 180 -steps 60 -nc -b 0 -steps 30 -nc -steps 90 -nc -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629
+yes y | ./ffmpeg.exe -f image2 -framerate 30 -i output/test%d.png output/test.gif

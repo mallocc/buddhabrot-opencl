@@ -130,23 +130,13 @@ int main(int argc, char* argv[])
 					else if (option == "im1" || option == "y1" || option == "imaginary1")
 						checkAndSet([&](const std::string& in) { stage.v1.im = std::stof(in); });
 
-					else if (option == "ztr")
-						checkAndSet([&](const std::string& in) { stage.zt.re = std::stof(in); });
-					else if (option == "zti")
-
-						checkAndSet([&](const std::string& in) { stage.zt.im = std::stof(in); });
-					else if (option == "ctr")
-						checkAndSet([&](const std::string& in) { stage.ct.re = std::stof(in); });
-					else if (option == "cti")
-
-						checkAndSet([&](const std::string& in) { stage.ct.im = std::stof(in); });
 					else if (option == "s" || option == "samples")
 						checkAndSet([&](const std::string& in) { bb.globalSize = std::stol(in); });
 					else if (option == "o" || option == "output")
 						checkAndSet([&](const std::string& in) { bb.filename = in; });
 					else if (option == "steps")
-
 						checkAndSet([&](const std::string& in) { stage.steps = std::stoi(in); });
+					
 					else if (option == "alpha" || option == "a")
 						checkAndSet([&](const std::string& in) { stage.alpha = std::stof(in); });
 					else if (option == "beta" || option == "b")
@@ -203,6 +193,9 @@ int main(int argc, char* argv[])
 
 					else if (option == "throttle-factor")
 						checkAndSet([&](const std::string& in) { bb.throttleFactor = std::stof(in); });
+
+					else if (option == "silent")
+						bb.silent = true;
 
 					else if (option == "next" || option == "next-stage" || option == "n")
 					{

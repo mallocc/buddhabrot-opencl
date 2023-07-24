@@ -1,6 +1,7 @@
 
 
-#define MAX_ITERATIONS 5000
+#define MAX_ITERATIONS 2048
+#define USE_ATOMIC_ADD 1
 
 uint xorshift32(uint* state) {
 	uint x = *state;
@@ -229,7 +230,13 @@ __kernel void buddhabrot(
 			// make sure it is in the viewable region
 			if (x >= 0 && x < w && y >= 0 && y < h)
 			{
-				histogram[y * w + x] += 1;
+				// Atomic add guarantees that no histogram pixel will be overwritten by another worker,
+				// but it will be slower (not by much from what I've seen :) )
+				// It means it is the complete correct histogram we want
+				if (USE_ATOMIC_ADD)
+					atomic_add(&histogram[y * w + x], 1);
+				else
+					histogram[y * w + x] += 1;
 				newContribution += 1;
 			}
 		}

@@ -24,6 +24,7 @@
     <ProjectGuid>{167056b4-e8e2-4fa3-a181-6444ea31e655}</ProjectGuid>
     <RootNamespace>OpenCLTest</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>buddhabrot-opencl</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

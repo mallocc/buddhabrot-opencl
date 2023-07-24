@@ -119,15 +119,17 @@ public:
 
 	std::string filename = "output/test";
 
-	int width = 1280;
-	int height = 720;
-	int components = 3;
+	bool silent = false;
 
-	int iterations = 1000;
-	int iterationsMin = 50;
-	int iterationsR = 1000;
-	int iterationsG = 333;
-	int iterationsB = 100;
+	int width = 0;
+	int height = 0;
+	int components = 0;
+
+	int iterations = 0;
+	int iterationsMin = 0;
+	int iterationsR = 0;
+	int iterationsG = 0;
+	int iterationsB = 0;
 
 	int counterOffset = 0;
 
@@ -139,7 +141,7 @@ public:
 
 	std::vector<uint8_t> pixelData;
 
-	int jobs = 23;
+	int jobs = 1;
 
 	std::vector<Complex> samples;
 	std::vector<double> sampleContributions;
@@ -244,6 +246,9 @@ public:
 
 	void print(const std::string& str)
 	{
+		if (silent)
+			return;
+
 		std::string totalProgress = drawProgressBar(1 - stepsLeft / (double)totalSteps, false);
 		std::string frameProgress = drawProgressBar(currentSample / (double)(globalSize), false);
 		std::stringstream ss;
@@ -316,14 +321,12 @@ public:
 			stbi_write_png(ss.str().c_str(), w, h, c, data, w * c);
 	}
 
-	void readHistogramData(const CLBuf<cl_int>& buffer, int componentOffset)
+	void readHistogramData(const CLBuf<cl_int>& buffer, int componentOffset, const Stage& stage)
 	{
 		double minValue = *std::min_element(buffer.data.data(), buffer.data.data() + buffer.data.size());
 		double maxValue = *std::max_element(buffer.data.data(), buffer.data.data() + buffer.data.size());
 		// Subtract the minimum value and divide by the range
 		double range = maxValue - minValue;
-
-		double gamma = 2.5;
 
 		for (int y = 0; y < height; ++y)
 			for (int x = 0; x < width; ++x)
@@ -331,7 +334,7 @@ public:
 				double newValue = buffer.data.data()[y * width + x];
 				for (int c = 0; c < components; ++c)
 					if (componentOffset == -1 || componentOffset == c)
-						pixelData[(y * width + x) * components + c] = pow(smoothstep((newValue - minValue) / range, 0.0f, 1.0f), 1.0 / gamma) * UCHAR_MAX;
+						pixelData[(y * width + x) * components + c] = pow(smoothstep((newValue - minValue) / range, 0.0f, 1.0f), 1.0 / stage.gamma) * UCHAR_MAX;
 			}
 	}
 
@@ -588,7 +591,7 @@ public:
 
 		// Create 4D rotation matrices for alpha, beta, theta, and phi
 		glm::mat4 rotation_alpha = create4DRotationMatrix(stage.alpha, 0.0, 0.0, 0.0);
-		glm::mat4 rotation_beta = create4DRotationMatrix(-stage.beta, 0.0, 0.0, 0.0);
+		glm::mat4 rotation_beta = create4DRotationMatrix(0.0, stage.beta, 0.0, 0.0);
 		glm::mat4 rotation_theta = create4DRotationMatrix(0.0, 0.0, stage.theta, 0.0);
 		glm::mat4 rotation_phi = create4DRotationMatrix(0.0, 0.0, 0.0, stage.phi);
 		// Combine the rotations in the specified order (z * x1 * x2)
@@ -631,7 +634,7 @@ public:
 		auto stms = std::chrono::milliseconds(sleepTime);
 		substepSize = std::min(globalSize, clm.maxWorkItemSize[0] * 10000);
 
-		for (currentSample = 0; currentSample < globalSize; currentSample += substepSize)
+		//for (currentSample = 0; currentSample < globalSize; currentSample += substepSize)
 		{
 			subTimer.start();
 
@@ -644,7 +647,7 @@ public:
 				if (!cl_initialSamples.write(clm))
 					return false;
 
-			if (!clm.execute(substepSize))
+			if (!clm.execute(globalSize))
 				return false;
 
 			if (!cl_histogram.read(clm))
@@ -699,7 +702,7 @@ public:
 			if (!process(iterationsR, stage))
 				return false;
 
-			readHistogramData(cl_histogram, 0);
+			readHistogramData(cl_histogram, 0, stage);
 
 			clearHistogram();
 			componentOverride = true;
@@ -711,7 +714,7 @@ public:
 			if (!process(iterationsG, stage))
 				return false;
 
-			readHistogramData(cl_histogram, 1);
+			readHistogramData(cl_histogram, 1, stage);
 
 			clearHistogram();
 			componentOverride = true;
@@ -723,7 +726,7 @@ public:
 			if (!process(iterationsB, stage))
 				return false;
 
-			readHistogramData(cl_histogram, 2);
+			readHistogramData(cl_histogram, 2, stage);
 
 			clearHistogram();
 			componentOverride = true;
@@ -735,7 +738,7 @@ public:
 			if (!process(iterations, stage))
 				return false;
 
-			readHistogramData(cl_histogram, -1);
+			readHistogramData(cl_histogram, -1, stage);
 		}
 
 		if (!writeToPNG(filename.empty() ? "" : filename + (step == -1 ? "" : std::to_string(step)),
