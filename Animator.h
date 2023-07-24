@@ -106,9 +106,9 @@ public:
 
 	std::string lastMessage;
 
-	static const int localNum = 1 << 14;
-	static const int localSize = 1 << 8;
-	static const int globalSize = localNum * localSize;
+	static const size_t localNum = 1 << 16;
+	static const size_t localSize = 1 << 8;
+	static const size_t globalSize = localNum * localSize;
 
 	CLManager clm;
 
@@ -123,6 +123,8 @@ public:
 	int iterationsR = 1000;
 	int iterationsG = 333;
 	int iterationsB = 100;
+
+	bool generateOnlyInRegion = true;
 
 	double radius = 4.0f;
 
@@ -143,8 +145,14 @@ public:
 	CLVar<cl_float2> cl_v0;
 	CLVar<cl_float2> cl_v1;
 	CLVar<cl_uint> cl_seed;
+	CLVar<cl_float2> cl_size;
+	CLVar<cl_float2> cl_center;
+	CLVar<cl_float2> cl_windowSize;
+	CLVar<cl_bool> cl_generateOnlyInRegion;
 
 	CLBuf<cl_int> cl_histogram;
+
+	CLBuf<cl_float> cl_rotationMatrix;
 
 	CLVar<cl_float4> cl_zm1;
 	CLVar<cl_float4> cl_zm2;
@@ -166,6 +174,7 @@ public:
 		cl_height.data = height;
 		cl_iterationsMin.data = iterationsMin;
 		cl_initialSamplesSize.data = initialSamplesSize;
+		cl_generateOnlyInRegion.data = generateOnlyInRegion;
 	}
 
 	void clearLastLines(int n) {
@@ -341,6 +350,16 @@ public:
 		return contrib / double(len);
 	}
 
+	inline static Complex mandelise(const Complex& z, const Complex& c, const glm::mat2& zm1, const glm::mat2& zm2, const glm::mat2& zm3) {
+		glm::vec2 z1(z.re, z.im);
+		float xx = z1.x * z1.x;
+		float yy = z1.y * z1.y;
+		glm::vec2 z2(xx - yy, z1.x * z1.y * 2.0f);
+		glm::vec2 z3(xx * z1.x - 3.0f * z1.x * yy, 3.0f * xx * z1.y - yy * z1.y);
+		glm::vec2 n = zm3 * z3 + zm2 * z2 + zm1 * z1 + glm::vec2(c.re, c.im);
+		return { n.x, n.y };
+	}
+
 	void generateInitialSamples(int targetAmount, int iter, const Stage& stage)
 	{
 		// find the size of the viewable complex plane
@@ -349,12 +368,15 @@ public:
 		// the center of the viewable complex plane
 		Complex center = size / 2.0 + stage.v0;
 
+		glm::mat2 zm1 = buildMatrix(stage.zAngleA, stage.zScalerA, stage.zYScaleA);
+		glm::mat2 zm2 = buildMatrix(stage.zAngleB, stage.zScalerB, stage.zYScaleB);
+		glm::mat2 zm3 = buildMatrix(stage.zAngleC, stage.zScalerC, stage.zYScaleC);
+
 		auto evalOrbit = [&](std::vector<Complex>& orbit, int& i, Complex& c) {
 			Complex z(c);
 			for (i = 0; i < iter && z.mod2() < radius; ++i)
 			{
-				z = z * z + c;
-				orbit[i] = z;
+				orbit[i] = z = mandelise(z, c, zm1, zm2, zm3);
 			}
 			if (z.mod2() > radius)
 				return true;
@@ -523,34 +545,49 @@ public:
 		cl_v0.data = { (float)v0.re, (float)v0.im };
 		cl_v1.data = { (float)v1.re, (float)v1.im };
 
+		Complex size = v1 - v0;
+		cl_size.data = { (float)size.re,(float)size.im };
+
+		Complex center = size / 2.0f + v0;
+		cl_center.data = { (float)center.re, (float)center.im };
+
+		cl_windowSize.data = { width / (float)size.re, height / (float)size.im };
+
 		cl_seed.data = randf() * UINT_MAX;
 
-		cl_int zero = 0;
-		clEnqueueFillBuffer(clm.queue, cl_histogram.buf, &zero, sizeof(cl_int), 0, cl_histogram.data.size() * sizeof(cl_int), 0, nullptr, nullptr);
-
 		glm::mat2 zm1 = buildMatrix(stage.zAngleA, stage.zScalerA, stage.zYScaleA);
+		cl_zm1.data = { zm1[0].x , zm1[0].y ,zm1[1].x ,zm1[1].y };
+
 		glm::mat2 zm2 = buildMatrix(stage.zAngleB, stage.zScalerB, stage.zYScaleB);
+		cl_zm2.data = { zm2[0].x , zm2[0].y ,zm2[1].x ,zm2[1].y };
+
 		glm::mat2 zm3 = buildMatrix(stage.zAngleC, stage.zScalerC, stage.zYScaleC);
+		cl_zm3.data = { zm3[0].x , zm3[0].y ,zm3[1].x ,zm3[1].y };
 
-		cl_zm1.data.x = zm1[0].x;
-		cl_zm1.data.y = zm1[0].y;
-		cl_zm1.data.z = zm1[1].x;
-		cl_zm1.data.w = zm1[1].y;
+		// Create 4D rotation matrices for alpha, beta, theta, and phi
+		glm::mat4 rotation_alpha = create4DRotationMatrix(stage.alpha, 0.0, 0.0, 0.0);
+		glm::mat4 rotation_beta = create4DRotationMatrix(-stage.beta, 0.0, 0.0, 0.0);
+		glm::mat4 rotation_theta = create4DRotationMatrix(0.0, 0.0, stage.theta, 0.0);
+		glm::mat4 rotation_phi = create4DRotationMatrix(0.0, 0.0, 0.0, stage.phi);
+		// Combine the rotations in the specified order (z * x1 * x2)
+		glm::mat4 rotationMatrix = rotation_phi * rotation_theta * rotation_alpha * rotation_beta;
 
-		cl_zm2.data.x = zm2[0].x;
-		cl_zm2.data.y = zm2[0].y;
-		cl_zm2.data.z = zm2[1].x;
-		cl_zm2.data.w = zm2[1].y;
-
-		cl_zm3.data.x = zm3[0].x;
-		cl_zm3.data.y = zm3[0].y;
-		cl_zm3.data.z = zm3[1].x;
-		cl_zm3.data.w = zm3[1].y;
+		// Copy the data from rotationMatrixData to the cl_rotationMatrix buffer
+		if (!cl_rotationMatrix.write(clm, mat4ToVector(rotationMatrix)))
+			return false;
 
 		if (initialSamplesSize > 0)
-			if (!clm.setKernelArgs({
+			if (!cl_initialSamples.write(clm))
+				return false;
+
+		if (!cl_histogram.fill(clm, 0))
+			return false;
+
+		if (!clm.setKernelArgs({
 				&cl_initialSamples,
 				&cl_initialSamplesSize,
+				&cl_generateOnlyInRegion,
+				&cl_size,
 				&cl_histogram,
 				&cl_width,
 				&cl_height,
@@ -558,22 +595,13 @@ public:
 				&cl_iterationsMin,
 				&cl_v0,
 				&cl_v1,
-				&cl_seed
-				}))
-				return false;
-
-		if (!clm.setKernelArgs({
-			&cl_histogram,
-			&cl_width,
-			&cl_height,
-			&cl_iterations,
-			&cl_iterationsMin,
-			&cl_v0,
-			&cl_v1,
-			&cl_seed,
-			&cl_zm1,
-			&cl_zm2,
-			&cl_zm3
+				&cl_center,
+				&cl_windowSize,
+				&cl_seed,
+				&cl_zm1,
+				&cl_zm2,
+				&cl_zm3,
+				&cl_rotationMatrix
 			}))
 			return false;
 
@@ -722,11 +750,13 @@ public:
 		if (!cl_histogram.load(clm))
 			return false;
 
+		cl_rotationMatrix.allocateSize(16);
+		if (!cl_rotationMatrix.load(clm, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR))
+			return false;
+
 		if (initialSamplesSize > 0)
 		{
 			cl_initialSamples.allocateSize(cl_initialSamplesSize.data);
-			for (int i = 0; i < samples.size(); ++i)
-				cl_initialSamples.data[i] = { 0 };
 			if (!cl_initialSamples.load(clm))
 				return false;
 		}

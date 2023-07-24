@@ -85,16 +85,22 @@ int main(int argc, char* argv[])
 	Animator ani;
 
 	Animator::Stage stage;
-	stage.steps = 30*10;
+	stage.steps = 30 * 1;
 	stage.bezier = true;
-	ani.stages.push_back(stage);
-
-	stage.zScalerA = 0.5;
-	stage.zScalerC = 0.5;
-	ani.stages.push_back(stage);
-
 	//stage.v0 = { -1.486, -0.174 };
 	//stage.v1 = { -1.132, 0.18 };
+	stage.v0 = { -1.7964999 , -0.0268000 };
+	stage.v1 = { -1.7350449 , 0.026830 };
+	ani.stages.push_back(stage);
+	//stage.alpha = 90;
+	//ani.stages.push_back(stage);
+	//stage.beta = 90;
+	//ani.stages.push_back(stage);
+	//stage.theta = 90;
+	//ani.stages.push_back(stage);
+	//stage.phi = 90;
+	//ani.stages.push_back(stage);
+
 	ani.init();
 
 	if (!ani.initCL())

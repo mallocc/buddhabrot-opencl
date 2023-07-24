@@ -328,7 +328,7 @@ public:
 		return true;
 	}
 
-	bool execute(int globalSize, int localSize)
+	bool execute(size_t globalSize, size_t localSize)
 	{
 		cl_event eve;
 		const size_t globalWorkSize[] = { globalSize, 0, 0 };
@@ -377,9 +377,25 @@ public:
 	bool load(CLManager& man, cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR)
 	{
 		buf = clCreateBuffer(man.context, flags,
-			sizeof(T) * (data.size()),
+			sizeof(T) * data.size(),
 			data.data(), &man.error);
 		return CheckError(man.error);
+	}
+
+	bool fill(CLManager& man, const T& pattern)
+	{
+		return CheckError(clEnqueueFillBuffer(man.queue, buf, &pattern, sizeof(T), 0, data.size() * sizeof(T), 0, nullptr, nullptr));
+	}
+
+	bool write(CLManager& man, const std::vector<T>& newData)
+	{
+		data = newData;
+		return write(man);
+	}
+
+	bool write(CLManager& man)
+	{
+		return CheckError(clEnqueueWriteBuffer(man.queue, buf, CL_TRUE, 0, sizeof(T) * data.size(), data.data(), 0, nullptr, nullptr));
 	}
 
 	bool read(CLManager& man)
