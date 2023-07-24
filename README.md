@@ -6,11 +6,11 @@ Original CPU based renderer: https://github.com/mallocc/buddhabrot
 -----
 |All renders are done with an NVIDIA GeForce RTX 3060.|
 |:--:|
-|![](https://github.com/mallocc/buddhabrot-opencl/blob/main/renders/render1.gif)|
+|![](https://github.com/mallocc/buddhabrot-opencl-opencl/blob/master/renders/render1.gif)|
 |`-bezier-enable -gen-in-region -w 256 -h 256 -s 1000000 -i 1000 -im 50 -o output/test1_ -steps 30 -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629 -nc -b 10 -a 60 -nc -a 89 -b 89 -nc -b 90 -a 90 -nc -a 90.5 -b 90.5 -steps 120 -nc -x0 -2 -y0 -1.5 -x1 1 -y1 1.5 -a 0 -b 180 -steps 60 -nc -b 0 -steps 30 -nc -steps 90 -nc -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629` ~7s render time|
-|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render2.gif)|
+|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render2.gif)|
 |`-bezier-enable -gen-in-region -w 256 -h 256 -s 1000000 -ir 1000 -ig 250 -ib 100 -im 50 -o output/test1_ -steps 30 -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629 -nc -b 10 -a 60 -nc -a 89 -b 89 -nc -b 90 -a 90 -nc -a 90.5 -b 90.5 -steps 120 -nc -x0 -2 -y0 -1.5 -x1 1 -y1 1.5 -a 0 -b 180 -steps 60 -nc -b 0 -steps 30 -nc -steps 90 -nc -x0 -1.37422 -y0 -0.0863194 -x1 -1.37176 -y1 -0.0838629` ~14s render time|
-|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render3.png)|
+|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render3.png)|
 |`-gamma 2.5 -w 720 -h 720 -s 100000000 -ir 2000 -ig 200 -ib 20 -im 0 -x0 -2 -y0 -1.5 -x1 1 -y1 1.5` ~1s render time|
 
 -----
@@ -141,7 +141,7 @@ for (int s = 0; s < samples; ++s)
 Notice that we are now not interating over the pixel positions, but randomly picking a starting position. We do this because we are trying to create a probability distribution of where trajectories fall. Using random samples helps us with this, because as the sample amount tends to infinity, the noise of the distribution falls to zero (like with any other distrubution). This is also known as a Monte Carlo method of sampling. 
 The only thing that makes it slightly more complicated is the conversion of the complex position back to screen space, but it's just a case rearranging the screen-to-complex forumla used in the Mandelbrot code.
 
-|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render4.png)|
+|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render4.png)|
 |:-:|
 | Large amount of iterations used (50000) shows stable trajectories generating a lot of 'heat'. 
 `-gamma 2.5 -w 512 -h 512 -s 1000000 -i 50000 -im 0 -x0 -2 -y0 -1.5 -x1 1 -y1 1.5`|
@@ -149,7 +149,7 @@ The only thing that makes it slightly more complicated is the conversion of the 
 ## Colouring
 The sqrt colouring method is commonly used with buddhabrot data. It is as simple as finding the highest value that occurs in the buddhabrot data, and then for each apply: `pixel[x + y * w] = sqrt(density[x + y * w]) / sqrt(maxDensity) * MAX_PIXEL_VALUE;`. Gamma correction can be applied using: `pixel[x + y * w] = pow(density[x + y * w] / maxDensity, 1 / gamma) * MAX_PIXEL_VALUE;`.
 
-|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render5.gif)|
+|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render5.gif)|
 |:-:|
 | Gamma value from 0 to 5. 
 ` -gamma 0 -w 512 -h 512 -s 10000000 -i 1000 -im 0 -x0 -2 -y0 -1.5 -x1 1 -y1 1.5 -steps 120 -nc -gamma 5`|
@@ -175,7 +175,7 @@ int y = ((t_im[j] - p_im) * cos(beta)  - (c_re - p_re) * sin(beta)  - y0) / (h /
 ```
 where `p_` is the point of intersection we want to rotate around. Note this is more readable in my source code!
 
-|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render6.gif)|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render7.gif)|![](https://github.com/mallocc/buddhabrot/blob/main/renders/render8.gif)|
+|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render6.gif)|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render7.gif)|![](https://github.com/mallocc/buddhabrot-opencl/blob/master/renders/render8.gif)|
 |:-:|:-:|:-:|
 | Rotation about the axis of `c_re`, from 0 to 180 degrees. | Rotation about the axis of `c_im`, from 0 to 180 degrees. | Rotation on both axes of 90 degrees results in the Bifurcation diagram. |
 
