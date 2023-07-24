@@ -24,10 +24,13 @@
     <ClInclude Include="Complex.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="Animator.h">
+    <ClInclude Include="BuddhabrotRenderer.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="randf.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="Timer.h">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>

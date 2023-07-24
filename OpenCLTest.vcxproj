@@ -161,11 +161,12 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Animator.h" />
+    <ClInclude Include="BuddhabrotRenderer.h" />
     <ClInclude Include="Complex.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="CLManager.h" />
     <ClInclude Include="randf.h" />
+    <ClInclude Include="Timer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="kernel.cl" />

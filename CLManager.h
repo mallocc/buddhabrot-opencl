@@ -105,6 +105,9 @@ public:
 	std::string kernelFunc;
 	std::string kernelFile;
 
+	cl_uint maxWorkItemDimensions;
+	std::vector<size_t> maxWorkItemSize;
+
 	static std::string GetPlatformName(cl_platform_id id)
 	{
 		size_t size = 0;
@@ -196,12 +199,19 @@ public:
 
 			clGetDeviceInfo(deviceIds[i], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(info), &info, nullptr);
 			std::cout << "\t\t CL_DEVICE_MAX_COMPUTE_UNITS: " << info << std::endl;
+
 			clGetDeviceInfo(deviceIds[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(info), &info, nullptr);
 			std::cout << "\t\t CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: " << info << std::endl;
+			maxWorkItemDimensions = info;
+
 			clGetDeviceInfo(deviceIds[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(info), &info, nullptr);
 			std::cout << "\t\t CL_DEVICE_MAX_WORK_GROUP_SIZE: " << info << std::endl;
-			clGetDeviceInfo(deviceIds[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(info), &info, nullptr);
-			std::cout << "\t\t CL_DEVICE_MAX_WORK_ITEM_SIZES: " << info << std::endl;
+
+			maxWorkItemSize = std::vector<size_t>(maxWorkItemDimensions);
+			clGetDeviceInfo(deviceIds[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(size_t) * maxWorkItemDimensions, maxWorkItemSize.data(), nullptr);
+			for (int j = 0; j < maxWorkItemSize.size(); ++j)
+				std::cout << std::format("\t\t CL_DEVICE_MAX_WORK_GROUP_SIZE[{}]: {}\n", j, maxWorkItemSize[j]);
+
 			cl_ulong size;
 			clGetDeviceInfo(deviceIds[i], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &size, 0);
 			std::cout << "\t\t CL_DEVICE_LOCAL_MEM_SIZE: " << info << std::endl;
@@ -328,11 +338,12 @@ public:
 		return true;
 	}
 
-	bool execute(size_t globalSize, size_t localSize)
+	bool execute(size_t globalSize)
 	{
 		cl_event eve;
 		const size_t globalWorkSize[] = { globalSize, 0, 0 };
-		const size_t localWorkSize[] = { localSize, 0, 0 };
+		//const size_t localWorkSize[] = { maxWorkItemSize.empty() ? 1 : maxWorkItemSize[0], 0, 0 };
+		const size_t localWorkSize[] = { maxWorkItemSize[0], maxWorkItemSize[1], maxWorkItemSize[2] };
 		if (!CheckError(clEnqueueNDRangeKernel(queue, kernel, 1,
 			nullptr,
 			globalWorkSize,
@@ -384,6 +395,7 @@ public:
 
 	bool fill(CLManager& man, const T& pattern)
 	{
+		data = std::vector<T>(data.size(), pattern);
 		return CheckError(clEnqueueFillBuffer(man.queue, buf, &pattern, sizeof(T), 0, data.size() * sizeof(T), 0, nullptr, nullptr));
 	}
 

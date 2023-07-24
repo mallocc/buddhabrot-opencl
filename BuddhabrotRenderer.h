@@ -17,6 +17,7 @@
 #include "randf.h"
 #include "Log.h"
 #include "CLManager.h"
+#include "Timer.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -24,7 +25,7 @@
 // Delicious
 #define PI 3.1415926
 
-class Animator
+class BuddhabrotRenderer
 {
 public:
 	struct Stage
@@ -106,16 +107,20 @@ public:
 
 	std::string lastMessage;
 
-	static const size_t localNum = 1 << 16;
-	static const size_t localSize = 1 << 8;
-	static const size_t globalSize = localNum * localSize;
+	size_t globalSize = 0;
+	size_t currentSample = 0;
+
+	size_t substepSize = 0;
+
+	double throttleFactor = 0;
+	bool throttling = false;
 
 	CLManager clm;
 
 	std::string filename = "output/test";
 
-	const int width = 1280;
-	const int height = 720;
+	int width = 1280;
+	int height = 720;
 	int components = 3;
 
 	int iterations = 1000;
@@ -124,7 +129,9 @@ public:
 	int iterationsG = 333;
 	int iterationsB = 100;
 
-	bool generateOnlyInRegion = true;
+	int counterOffset = 0;
+
+	bool generateOnlyInRegion = false;
 
 	double radius = 4.0f;
 
@@ -161,6 +168,20 @@ public:
 	CLBuf<cl_float3> cl_initialSamples;
 	CLVar<cl_int> cl_initialSamplesSize;
 
+	TimerMS timer;
+	TimerMS subTimer;
+
+	size_t findMaxGlobalSize(size_t globalSize, size_t maxWorkItemSize) {
+		size_t divisor = maxWorkItemSize;
+		while (divisor > 0) {
+			if (globalSize % divisor == 0) {
+				return globalSize;
+			}
+			globalSize--;
+		}
+		// If no divisor is found, return the original globalSize.
+		return globalSize;
+	}
 
 	void init()
 	{
@@ -203,7 +224,7 @@ public:
 		return lineCount;
 	}
 
-	std::string drawProgressBar(double progress) {
+	std::string drawProgressBar(double progress, bool stalled) {
 		int barWidth = 30;
 		int pos = static_cast<int>(barWidth * progress);
 
@@ -213,7 +234,7 @@ public:
 			if (i < pos)
 				ss << "=";
 			else if (i == pos)
-				ss << ">";
+				ss << (stalled ? ":" : ">");
 			else
 				ss << " ";
 		}
@@ -223,18 +244,19 @@ public:
 
 	void print(const std::string& str)
 	{
-		std::string totalProgress = drawProgressBar(1 - stepsLeft / (double)totalSteps);
+		std::string totalProgress = drawProgressBar(1 - stepsLeft / (double)totalSteps, false);
+		std::string frameProgress = drawProgressBar(currentSample / (double)(globalSize), false);
 		std::stringstream ss;
 		ss
-			//<< "\n          Average time: " << timer.getAverageTime() / 1000.0f << "s"
-			//<< "\n        Est. time left: " << secondsToHHMMSS(stepsLeft * timer.getAverageTime() / 1000.0f)
-			//<< "\n  Est. frame time left: " << secondsToHHMMSS(((samples - currentSamples) / (double)printInterval) * sampleTimeMs / 1000.0f)
+			<< "\n          Average time: " << timer.getAverageTimeInSecs() << "s"
+			<< "\n        Est. time left: " << TimerMS::secondsToHHMMSS(stepsLeft * timer.getAverageTimeInSecs())
+			<< "\n  Est. frame time left: " << TimerMS::secondsToHHMMSS(((globalSize - currentSample) / (double)substepSize) * subTimer.getAverageTimeInSecs())
 			<< (stages.size() > 1 ? std::format("\n            Processing: STAGE {} / {},\tSTEP {} / {}", currentStage + 1, stages.size() - 1, currentStep + 1, stages[currentStage].steps) : "")
-			//<< "\n        Current Sample: " << currentSamples
+			<< "\n        Current Sample: " << currentSample << (throttling ? " THROTTLING" : "")
 			<< "\n             Currently: " << (str.empty() ? lastMessage : str)
-			//<< "\n        Frame Progress:" << frameProgress
-			//<< "\n        Total Progress:" << (stages.size() == 1 ? frameProgress : totalProgress);
-			<< "\n        Total Progress:" << totalProgress;
+			<< "\n        Frame Progress:" << frameProgress
+			<< "\n        Total Progress:" << (stages.size() == 1 ? frameProgress : totalProgress);
+		//<< "\n        Total Progress:" << totalProgress;
 		clearLastLines(countLinesInStringStream(ss));
 		std::cout << ss.str() << std::endl;
 		if (!str.empty())
@@ -605,15 +627,42 @@ public:
 			}))
 			return false;
 
-		if (!clm.execute(globalSize, localSize))
-			return false;
+		auto sleepTime = (int)(1000 * throttleFactor);
+		auto stms = std::chrono::milliseconds(sleepTime);
+		substepSize = std::min(globalSize, clm.maxWorkItemSize[0] * 10000);
 
-		if (!cl_histogram.read(clm))
-			return false;
+		for (currentSample = 0; currentSample < globalSize; currentSample += substepSize)
+		{
+			subTimer.start();
 
-		if (initialSamplesSize > 0)
-			if (!cl_initialSamples.read(clm))
+			throttling = false;
+			print("");
+
+			if (!cl_histogram.write(clm))
 				return false;
+			if (initialSamplesSize > 0)
+				if (!cl_initialSamples.write(clm))
+					return false;
+
+			if (!clm.execute(substepSize))
+				return false;
+
+			if (!cl_histogram.read(clm))
+				return false;
+			if (initialSamplesSize > 0)
+				if (!cl_initialSamples.read(clm))
+					return false;
+
+			if (sleepTime > 250)
+			{
+				throttling = true;
+				print("");
+			}
+
+			std::this_thread::sleep_for(stms);
+
+			subTimer.stop();
+		}
 
 		return true;
 	}
@@ -699,10 +748,11 @@ public:
 	bool run()
 	{
 		LOG("Starting sequence...");
-		std::cout << "\n\n\n\n\n\n\n";
+		std::cout << "\n\n\n\n\n\n\n\n\n";
 
 		for (int stage = 0; stage < stages.size() - 1; ++stage)
 			totalSteps += stages[stage].steps;
+		stepsLeft = totalSteps;
 
 		if (stages.size() > 1)
 		{
@@ -723,8 +773,12 @@ public:
 						tStage.lerpTo(b, stages[stage + 1]);
 					}
 
-					if (!processFrame(tStage, stepC))
+					timer.start();
+
+					if (!processFrame(tStage, stepC + counterOffset))
 						return false;
+
+					timer.stop();
 
 					stepsLeft = (totalSteps - stepC);
 				}
@@ -759,6 +813,13 @@ public:
 			cl_initialSamples.allocateSize(cl_initialSamplesSize.data);
 			if (!cl_initialSamples.load(clm))
 				return false;
+		}
+
+		auto oldSize = globalSize;
+		if (!clm.maxWorkItemSize.empty())
+		{
+			globalSize = findMaxGlobalSize(globalSize, clm.maxWorkItemSize[0]);
+			LOG(std::format("Modifing samples size for optimisation: {} -> {} samples", oldSize, globalSize));
 		}
 
 		return true;
