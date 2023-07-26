@@ -52,6 +52,14 @@ public:
 		double zAngleA = 0;
 		double zYScaleA = 1;
 
+		double iterations = 0;
+		double iterationsMin = 0;
+		double iterationsR = 0;
+		double iterationsG = 0;
+		double iterationsB = 0;
+
+		size_t samples = 0;
+
 		// Linear interpolation
 		template <typename T>
 		static double lerp(T t, T x0, T x1)

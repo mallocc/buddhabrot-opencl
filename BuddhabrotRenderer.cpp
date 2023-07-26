@@ -38,6 +38,14 @@ void BuddhabrotRenderer::Stage::lerpTo(double t, const Stage& next)
 	ct.im = lerp(t, ct.im, next.ct.im);
 	j.re = lerp(t, j.re, next.j.re);
 	j.im = lerp(t, j.im, next.j.im);
+
+	iterations = lerp(t, iterations, next.iterations);
+	iterationsMin = lerp(t, iterationsMin, next.iterationsMin);
+	iterationsR = lerp(t, iterationsR, next.iterationsR);
+	iterationsG = lerp(t, iterationsG, next.iterationsG);
+	iterationsB = lerp(t, iterationsB, next.iterationsB);
+
+	samples = size_t(lerp(t, double(samples), double(next.samples)));
 }
 
 size_t BuddhabrotRenderer::findMaxGlobalSize(size_t globalSize, size_t maxWorkItemSize) {
@@ -54,15 +62,8 @@ size_t BuddhabrotRenderer::findMaxGlobalSize(size_t globalSize, size_t maxWorkIt
 
 void BuddhabrotRenderer::init()
 {
-	components = (iterationsR > 0
-		|| iterationsG > 0
-		|| iterationsB > 0) ? 3 : 1;
-
-	pixelData = std::vector<uint8_t>(width * height * components, 0);
-
 	cl_width.data = width;
 	cl_height.data = height;
-	cl_iterationsMin.data = iterationsMin;
 	cl_initialSamplesSize.data = initialSamplesSize;
 	cl_generateOnlyInRegion.data = generateOnlyInRegion;
 }
@@ -204,6 +205,7 @@ void BuddhabrotRenderer::readHistogramData(const CLBuf<cl_int>& buffer, int comp
 				if (componentOffset == -1 || componentOffset == c)
 					pixelData[size_t(y * width + x) * components + c] = static_cast<cl_int>(pow(smoothstep((newValue - minValue) / range, 0.0f, 1.0f), 1.0 / stage.gamma) * UCHAR_MAX);
 		}
+
 }
 
 Complex BuddhabrotRenderer::mutate(Complex& c, Complex& size, const Complex& minc, const Complex& maxc, double threshold)
@@ -334,6 +336,8 @@ void BuddhabrotRenderer::generateInitialSamples(int targetAmount, int iter, cons
 #endif
 				for (int e = 0; e < targetAmount; ++e)
 				{
+					if (samples.size() >= targetAmount)
+						break;
 					Complex m;
 					if (FindInitialSample(tempOrbit, m, 0, 0, radius / 2.0f, 0))
 					{
@@ -431,6 +435,7 @@ glm::mat4 BuddhabrotRenderer::create4DRotationMatrix(double alpha, double beta, 
 bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 {
 	cl_iterations.data = iter;
+	cl_iterationsMin.data = static_cast<int>(stage.iterationsMin);
 
 	Complex v0 = stage.v0, v1 = stage.v1;
 	centeredRegionAfterAspect(v0, v1);
@@ -444,8 +449,6 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 	cl_center.data = { (float)center.re, (float)center.im };
 
 	cl_windowSize.data = { width / (float)size.re, height / (float)size.im };
-
-	cl_seed.data = static_cast<cl_uint>(randf() * UINT_MAX);
 
 	glm::mat2 zm1 = buildMatrix(stage.zAngleA, stage.zScalerA, stage.zYScaleA);
 	cl_zm1.data = { zm1[0].x , zm1[0].y ,zm1[1].x ,zm1[1].y };
@@ -475,38 +478,28 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 	if (!cl_histogram.fill(clm, 0))
 		return false;
 
-	if (!clm.setKernelArgs({
-		&cl_initialSamples,
-		&cl_initialSamplesSize,
-		&cl_generateOnlyInRegion,
-		&cl_size,
-		&cl_histogram,
-		&cl_width,
-		&cl_height,
-		&cl_iterations,
-		&cl_iterationsMin,
-		&cl_v0,
-		&cl_v1,
-		&cl_center,
-		&cl_windowSize,
-		&cl_seed,
-		&cl_zm1,
-		&cl_zm2,
-		&cl_zm3,
-		&cl_rotationMatrix
-		}))
-		return false;
-
 	auto sleepTime = (int)(1000 * throttleFactor);
 	auto stms = std::chrono::milliseconds(sleepTime);
-	substepSize = std::min(globalSize, clm.maxWorkItemSize[0] * 10000);
 
-	//for (currentSample = 0; currentSample < globalSize; currentSample += substepSize)
+	auto oldSize = stage.samples;
+	auto newSize = oldSize;
+	if (!clm.maxWorkItemSize.empty())
+	{
+		newSize = findMaxGlobalSize(oldSize, clm.maxWorkItemSize[0]);
+		//LOG(std::format("Modifing samples size for optimisation: {} -> {} samples", oldSize, newSize));
+	}
+	globalSize = newSize;
+
+	substepSize = std::min(newSize, clm.maxWorkItemSize[0] * 100000);
+
+	for (currentSample = 0; currentSample < newSize; currentSample += substepSize)
 	{
 		subTimer.start();
 
 		throttling = false;
 		print("");
+
+		cl_seed.data = static_cast<cl_uint>(randf() * UINT_MAX);
 
 		if (!cl_histogram.write(clm))
 			return false;
@@ -514,7 +507,29 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 			if (!cl_initialSamples.write(clm))
 				return false;
 
-		if (!clm.execute(globalSize))
+		if (!clm.setKernelArgs({
+				&cl_initialSamples,
+				&cl_initialSamplesSize,
+				&cl_generateOnlyInRegion,
+				&cl_size,
+				&cl_histogram,
+				&cl_width,
+				&cl_height,
+				&cl_iterations,
+				&cl_iterationsMin,
+				&cl_v0,
+				&cl_v1,
+				&cl_center,
+				&cl_windowSize,
+				&cl_seed,
+				&cl_zm1,
+				&cl_zm2,
+				&cl_zm3,
+				&cl_rotationMatrix
+			}))
+			return false;
+
+		if (!clm.execute(substepSize))
 			return false;
 
 		if (!cl_histogram.read(clm))
@@ -543,7 +558,7 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 {
 	bool componentOverride = false;
 
-	if (initialSamplesSize > 0)
+	if (initialSamplesSize > 0 && samples.empty())
 	{
 		print("Generating initial samples...");
 
@@ -554,20 +569,25 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		}
 
 		generateInitialSamples(initialSamplesSize,
-			std::max<int>(iterationsR, std::max<int>(iterationsG, std::max<int>(iterationsR, iterations))),
+			int(std::max<double>(stage.iterationsR, std::max<double>(stage.iterationsG, std::max<double>(stage.iterationsR, stage.iterations)))),
 			stage);
 
-		for (int i = 0; i < samples.size(); ++i)
+		for (int i = 0; i < cl_initialSamples.data.size(); ++i)
 			cl_initialSamples.data[i] = (cl_float3({ (float)samples[i].re,
 				(float)samples[i].im,
 				(float)sampleContributions[i] }));
 	}
 
-	if (iterationsR > 0)
+	components = (stage.iterationsR > 0
+		|| stage.iterationsG > 0
+		|| stage.iterationsB > 0) ? 3 : 1;
+	pixelData = std::vector<uint8_t>(width * height * components, 0);
+
+	if (stage.iterationsR > 0)
 	{
 		print("Processing red channel... ");
 
-		if (!process(iterationsR, stage))
+		if (!process(static_cast<int>(stage.iterationsR), stage))
 			return false;
 
 		readHistogramData(cl_histogram, 0, stage);
@@ -575,11 +595,11 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		clearHistogram();
 		componentOverride = true;
 	}
-	if (iterationsG > 0)
+	if (stage.iterationsG > 0)
 	{
 		print("Processing green channel... ");
 
-		if (!process(iterationsG, stage))
+		if (!process(static_cast<int>(stage.iterationsG), stage))
 			return false;
 
 		readHistogramData(cl_histogram, 1, stage);
@@ -587,11 +607,11 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		clearHistogram();
 		componentOverride = true;
 	}
-	if (iterationsB > 0)
+	if (stage.iterationsB > 0)
 	{
 		print("Processing blue channel... ");
 
-		if (!process(iterationsB, stage))
+		if (!process(static_cast<int>(stage.iterationsB), stage))
 			return false;
 
 		readHistogramData(cl_histogram, 2, stage);
@@ -603,7 +623,7 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 	if (!componentOverride)
 	{
 		print("Processing greyscale channel... ");
-		if (!process(iterations, stage))
+		if (!process(static_cast<int>(stage.iterations), stage))
 			return false;
 
 		readHistogramData(cl_histogram, -1, stage);

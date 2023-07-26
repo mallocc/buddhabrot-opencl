@@ -106,15 +106,15 @@ int main(int argc, char* argv[])
 					//	checkSetVolumeVals(bb.volumeBZ);
 
 					else if (option == "i" || option == "iterations")
-						checkAndSet([&](const std::string& in) { bb.iterations = std::stoi(in); });
+						checkAndSet([&](const std::string& in) { stage.iterations = std::stoi(in); });
 					else if (option == "ir" || option == "iterations-red")
-						checkAndSet([&](const std::string& in) { bb.iterationsR = std::stoi(in); });
+						checkAndSet([&](const std::string& in) { stage.iterationsR = std::stoi(in); });
 					else if (option == "ig" || option == "iterations-green")
-						checkAndSet([&](const std::string& in) { bb.iterationsG = std::stoi(in); });
+						checkAndSet([&](const std::string& in) { stage.iterationsG = std::stoi(in); });
 					else if (option == "ib" || option == "iterations-blue")
-						checkAndSet([&](const std::string& in) { bb.iterationsB = std::stoi(in); });
+						checkAndSet([&](const std::string& in) { stage.iterationsB = std::stoi(in); });
 					else if (option == "im" || option == "iterations-min")
-						checkAndSet([&](const std::string& in) { bb.iterationsMin = std::stoi(in); });
+						checkAndSet([&](const std::string& in) { stage.iterationsMin = std::stoi(in); });
 
 					else if (option == "gamma")
 						checkAndSet([&](const std::string& in) { stage.gamma = std::stof(in); });
@@ -132,7 +132,7 @@ int main(int argc, char* argv[])
 						checkAndSet([&](const std::string& in) { stage.v1.im = std::stof(in); });
 
 					else if (option == "s" || option == "samples")
-						checkAndSet([&](const std::string& in) { bb.globalSize = std::stol(in); });
+						checkAndSet([&](const std::string& in) { stage.samples = std::stoll(in); });
 					else if (option == "o" || option == "output")
 						checkAndSet([&](const std::string& in) { bb.filename = in; });
 					else if (option == "steps")

@@ -29,7 +29,7 @@ float2 mutate(uint* state, float2 c, float2 size, float2 minc, float2 maxc, floa
 	if (randf(state, 0.0f, 1.0f) <= threshold)
 	{
 		float zoom = 4.0f / size.x;
-		float r = randf(state, 0.0f, 1 / zoom);
+		float r = randf(state, 0.0f, 0.1 / zoom);
 
 		c.x += randf(state, -r, r);
 		c.y += randf(state, -r, r);
@@ -175,7 +175,7 @@ __kernel void buddhabrot(
 	// get an initial sample
 	int initial_sample_id = gId % initial_samples_size;
 	float2 c = initial_samples_size > 0
-		? mutate(&state, inital_samples[initial_sample_id].xy, size, v0, v1, 0.99)
+		? mutate(&state, inital_samples[initial_sample_id].xy, size, v0, v1, 1)
 		: (generateOnlyInRegion
 			? (float2)(randf(&state, v0.x, v1.x), randf(&state, v0.y, v1.y))
 			: (float2)(randf(&state, -2, 2), randf(&state, -2, 2)));

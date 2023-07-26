@@ -309,6 +309,7 @@ bool CLManager::execute(size_t globalSize)
 {
 	cl_event eve;
 	const size_t globalWorkSize[] = { globalSize, 0, 0 };
+	//const size_t localWorkSize[] = { 1, 0, 0 };
 	const size_t localWorkSize[] = { maxWorkItemSize.empty() ? 1 : maxWorkItemSize[0], 0, 0 };
 	//const size_t localWorkSize[] = { maxWorkItemSize[0], maxWorkItemSize[1], maxWorkItemSize[2] };
 	if (!CheckError(clEnqueueNDRangeKernel(queue, kernel, 1,
