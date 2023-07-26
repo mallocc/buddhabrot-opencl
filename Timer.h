@@ -70,7 +70,7 @@ public:
 
 	static std::string secondsToHHMMSS(double duration) {
 		std::chrono::seconds totalSeconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration<double>(duration));
-		int hours = totalSeconds.count() / 3600;
+		int hours = static_cast<int>(totalSeconds.count()) / 3600;
 		int minutes = (totalSeconds.count() % 3600) / 60;
 		int seconds = totalSeconds.count() % 60;
 

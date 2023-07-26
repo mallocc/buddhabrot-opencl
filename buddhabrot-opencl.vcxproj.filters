@@ -16,6 +16,9 @@
     <ClCompile Include="CLManager.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="BuddhabrotRenderer.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Log.h">

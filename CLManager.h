@@ -38,7 +38,7 @@ public:
 
 	static std::string getOpenCLErrorString(cl_int errorCode);
 
-	static inline bool __CheckError(cl_int err, const char* file, int line);
+	static bool __CheckError(cl_int err, const char* file, int line);
 	
 	static std::string GetPlatformName(cl_platform_id id);
 

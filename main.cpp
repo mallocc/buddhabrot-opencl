@@ -5,10 +5,11 @@
 #include "Timer.h"
 
 #include <stack>
+#include "Log.h"
 
 int main(int argc, char* argv[])
 {
-	srand(time(NULL));
+	srand(static_cast<unsigned int>(time(NULL)));
 
 	LOG("Program Entry");
 
