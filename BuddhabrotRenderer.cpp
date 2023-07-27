@@ -6,8 +6,35 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+const double springConstant = 0.9; // Adjust this value to control springiness
+const double dampingFactor = 0.1; // Adjust this value to control damping
+
+void cubicHermiteSpline(const  BuddhabrotRenderer::Stage& startPoint, const  BuddhabrotRenderer::Stage& endPoint, double t, BuddhabrotRenderer::Stage& resultStage)
+{
+	// Calculate the t^2 and t^3 terms
+	double t2 = t * t;
+	double t3 = t2 * t;
+
+	// Cubic Hermite spline interpolation formula for each parameter
+	resultStage.v0.re = (2 * t3 - 3 * t2 + 1) * startPoint.v0.re + (t3 - 2 * t2 + t) * startPoint.v0.re + (-2 * t3 + 3 * t2) * endPoint.v0.re + (t3 - t2) * endPoint.v0.re;
+	resultStage.v0.im = (2 * t3 - 3 * t2 + 1) * startPoint.v0.im + (t3 - 2 * t2 + t) * startPoint.v0.im + (-2 * t3 + 3 * t2) * endPoint.v0.im + (t3 - t2) * endPoint.v0.im;
+	resultStage.v1.re = (2 * t3 - 3 * t2 + 1) * startPoint.v1.re + (t3 - 2 * t2 + t) * startPoint.v1.re + (-2 * t3 + 3 * t2) * endPoint.v1.re + (t3 - t2) * endPoint.v1.re;
+	resultStage.v1.im = (2 * t3 - 3 * t2 + 1) * startPoint.v1.im + (t3 - 2 * t2 + t) * startPoint.v1.im + (-2 * t3 + 3 * t2) * endPoint.v1.im + (t3 - t2) * endPoint.v1.im;
+}
+
 void BuddhabrotRenderer::Stage::lerpTo(double t, const Stage& next)
 {
+	// Calculate the spring effect
+	double springEffect = (1.0 - exp(-springConstant * t)) / (1.0 - exp(-springConstant));
+
+	// Calculate the damping effect
+	double dampingEffect = exp(-dampingFactor * t);
+
+	// Combine the spring and damping effects to get the overall interpolation factor
+	double interpolationFactor = springEffect * dampingEffect;
+
+	t = interpolationFactor;
+
 	alpha = lerp(t, alpha, next.alpha) / 180 * PI;
 	beta = lerp(t, beta, next.beta) / 180 * PI;
 	theta = lerp(t, theta, next.theta) / 180 * PI;
@@ -28,10 +55,10 @@ void BuddhabrotRenderer::Stage::lerpTo(double t, const Stage& next)
 	zYScaleA = lerp(t, zYScaleA, next.zYScaleA);
 
 	mhRatio = lerp(t, mhRatio, next.mhRatio);
-	v0.re = lerp(t, v0.re, next.v0.re);
-	v0.im = lerp(t, v0.im, next.v0.im);
-	v1.re = lerp(t, v1.re, next.v1.re);
-	v1.im = lerp(t, v1.im, next.v1.im);
+	//v0.re = lerp(t, v0.re, next.v0.re);
+	//v0.im = lerp(t, v0.im, next.v0.im);
+	//v1.re = lerp(t, v1.re, next.v1.re);
+	//v1.im = lerp(t, v1.im, next.v1.im);
 	zt.re = lerp(t, zt.re, next.zt.re);
 	zt.im = lerp(t, zt.im, next.zt.im);
 	ct.re = lerp(t, ct.re, next.ct.re);
@@ -498,7 +525,7 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 	cl_size.data = { (float)size.re,(float)size.im };
 
 	double zoom = !generateOnlyInRegion && scale ? 16.0f / size.re : 1.0f;
-	double zoomIter  = scale ? 2.0f / size.re : 1.0f;
+	double zoomIter = scale ? 2.0f / size.re : 1.0f;
 
 	cl_iterations.data = std::min<cl_int>(iter * zoomIter, 4096);
 	cl_iterationsMin.data = static_cast<cl_int>(stage.iterationsMin);
@@ -782,7 +809,10 @@ bool BuddhabrotRenderer::run()
 				{
 					double b = tStage.bezier ? smootherstep(step / (double)steps, 0., 1.) : (step / (double)steps);
 					tStage.lerpTo(b, stages[stage + 1]);
+					
+					cubicHermiteSpline(stages[stage], stages[stage + 1], step / (double)steps, tStage);
 				}
+
 
 				timer.start();
 
