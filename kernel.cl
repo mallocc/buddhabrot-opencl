@@ -1,6 +1,6 @@
 
 
-#define MAX_ITERATIONS 2048
+#define MAX_ITERATIONS 4096
 #define USE_ATOMIC_ADD 1
 
 uint xorshift32(uint* state) {

@@ -82,6 +82,13 @@ public:
 		return oss.str();
 	}
 
+	void reset()
+	{
+		totalDuration = 0;
+		numSamples = 0;
+		startTime = {};
+	}
+
 private:
 	std::chrono::high_resolution_clock::time_point startTime;
 	std::atomic<long long> totalDuration;

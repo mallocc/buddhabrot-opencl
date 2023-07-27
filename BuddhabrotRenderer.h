@@ -110,6 +110,10 @@ public:
 
 	int initialSamplesSize = 0;
 
+	bool hybrid = false;
+
+	bool scale = false;
+
 	std::vector<uint8_t> pixelData;
 
 	int jobs = 1;
@@ -175,7 +179,7 @@ public:
 	bool writeToPNG(const std::string& filename, int w, int h, int c, uint8_t* data);
 
 	// Read histogram data from a CLBuf object and update pixelData accordingly
-	void readHistogramData(const CLBuf<cl_int>& buffer, int componentOffset, const Stage& stage);
+	void readHistogramData(CLBuf<cl_int>& buffer, int componentOffset, const Stage& stage, bool applyMediumFilter = false);
 
 	// Mutate a complex number using a given size, min, max, and threshold
 	Complex mutate(Complex& c, Complex& size, const Complex& minc, const Complex& maxc, double threshold = 0.5);

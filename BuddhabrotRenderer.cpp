@@ -190,8 +190,56 @@ bool BuddhabrotRenderer::writeToPNG(const std::string& filename, int w, int h, i
 		stbi_write_png(ss.str().c_str(), w, h, c, data, w * c);
 }
 
-void BuddhabrotRenderer::readHistogramData(const CLBuf<cl_int>& buffer, int componentOffset, const Stage& stage)
+// Apply medium filter to a 2D array
+static void mediumFilter2D(int w, int h, std::vector<cl_int>& input, int filterSize, double spatialSigma = 2, double intensitySigma = 100)
 {
+	std::vector<int> result(input.size());
+
+	for (int y = 0; y < h; ++y)
+	{
+		for (int x = 0; x < w; ++x)
+		{
+			double totalWeight = 0.0;
+			double weightedSum = 0.0;
+
+			// Calculate the region of interest around the current pixel
+			int startY = std::max<int>(0, y - filterSize / 2);
+			int endY = std::min<int>(h - 1, y + filterSize / 2);
+			int startX = std::max<int>(0, x - filterSize / 2);
+			int endX = std::min<int>(w - 1, x + filterSize / 2);
+
+			for (int j = startY; j <= endY; ++j)
+			{
+				for (int i = startX; i <= endX; ++i)
+				{
+					// Calculate spatial and intensity differences
+					double spatialDist = std::sqrt((i - x) * (i - x) + (j - y) * (j - y));
+					double intensityDist = std::abs(input[j * w + i] - input[y * w + x]);
+
+					// Calculate the weight based on spatial and intensity differences
+					double spatialWeight = std::exp(-spatialDist / (2.0 * spatialSigma * spatialSigma));
+					double intensityWeight = std::exp(-intensityDist / (2.0 * intensitySigma * intensitySigma));
+					double weight = spatialWeight * intensityWeight;
+
+					// Accumulate the weighted sum and total weight
+					weightedSum += weight * input[j * w + i];
+					totalWeight += weight;
+				}
+			}
+
+			// Calculate the new pixel value by shifting towards the weighted sum
+			int newValue = static_cast<int>(weightedSum / totalWeight);
+			result[y * w + x] = newValue;
+		}
+	}
+
+	input = result;
+}
+
+void BuddhabrotRenderer::readHistogramData(CLBuf<cl_int>& buffer, int componentOffset, const Stage& stage, bool applyMediumFilter)
+{
+	//mediumFilter2D(width, height, buffer.data, 2, 3, 25);
+
 	double minValue = *std::min_element(buffer.data.data(), buffer.data.data() + buffer.data.size());
 	double maxValue = *std::max_element(buffer.data.data(), buffer.data.data() + buffer.data.size());
 	// Subtract the minimum value and divide by the range
@@ -203,7 +251,14 @@ void BuddhabrotRenderer::readHistogramData(const CLBuf<cl_int>& buffer, int comp
 			double newValue = buffer.data.data()[y * width + x];
 			for (int c = 0; c < components; ++c)
 				if (componentOffset == -1 || componentOffset == c)
-					pixelData[size_t(y * width + x) * components + c] = static_cast<cl_int>(pow(smoothstep((newValue - minValue) / range, 0.0f, 1.0f), 1.0 / stage.gamma) * UCHAR_MAX);
+					pixelData[size_t(y * width + x) * components + c] =
+					static_cast<cl_int>(
+						pow(
+							smoothstep(
+								(newValue - minValue) / range,
+								0.0f, 1.0f),
+							1.0 / stage.gamma)
+						* UCHAR_MAX /** (applyMediumFilter ? 0.5f : 1.0f)*/);
 		}
 
 }
@@ -434,9 +489,6 @@ glm::mat4 BuddhabrotRenderer::create4DRotationMatrix(double alpha, double beta, 
 
 bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 {
-	cl_iterations.data = iter;
-	cl_iterationsMin.data = static_cast<int>(stage.iterationsMin);
-
 	Complex v0 = stage.v0, v1 = stage.v1;
 	centeredRegionAfterAspect(v0, v1);
 	cl_v0.data = { (float)v0.re, (float)v0.im };
@@ -444,6 +496,12 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 
 	Complex size = v1 - v0;
 	cl_size.data = { (float)size.re,(float)size.im };
+
+	double zoom = !generateOnlyInRegion && scale ? 16.0f / size.re : 1.0f;
+	double zoomIter  = scale ? 2.0f / size.re : 1.0f;
+
+	cl_iterations.data = std::min<cl_int>(iter * zoomIter, 4096);
+	cl_iterationsMin.data = static_cast<cl_int>(stage.iterationsMin);
 
 	Complex center = size / 2.0f + v0;
 	cl_center.data = { (float)center.re, (float)center.im };
@@ -478,19 +536,21 @@ bool BuddhabrotRenderer::process(int iter, const Stage& stage)
 	if (!cl_histogram.fill(clm, 0))
 		return false;
 
+	subTimer.reset();
+
 	auto sleepTime = (int)(1000 * throttleFactor);
 	auto stms = std::chrono::milliseconds(sleepTime);
 
-	auto oldSize = stage.samples;
+	auto oldSize = stage.samples * zoom;
 	auto newSize = oldSize;
 	if (!clm.maxWorkItemSize.empty())
 	{
 		newSize = findMaxGlobalSize(oldSize, clm.maxWorkItemSize[0]);
-		//LOG(std::format("Modifing samples size for optimisation: {} -> {} samples", oldSize, newSize));
+		//print(std::format("Modifing samples size for optimisation: {} -> {} samples", oldSize, newSize));
 	}
 	globalSize = newSize;
 
-	substepSize = std::min(newSize, clm.maxWorkItemSize[0] * 100000);
+	substepSize = std::min<size_t>(newSize, clm.maxWorkItemSize[0] * 100000);
 
 	for (currentSample = 0; currentSample < newSize; currentSample += substepSize)
 	{
@@ -590,7 +650,22 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		if (!process(static_cast<int>(stage.iterationsR), stage))
 			return false;
 
-		readHistogramData(cl_histogram, 0, stage);
+		if (hybrid)
+		{
+			generateOnlyInRegion = !generateOnlyInRegion;
+
+			auto histogramA = cl_histogram.data;
+
+			if (!process(static_cast<int>(stage.iterationsR), stage))
+				return false;
+
+			for (int i = 0; i < cl_histogram.data.size(); ++i)
+				cl_histogram.data[i] += histogramA[i];
+
+			generateOnlyInRegion = !generateOnlyInRegion;
+		}
+
+		readHistogramData(cl_histogram, 0, stage, hybrid && !generateOnlyInRegion);
 
 		clearHistogram();
 		componentOverride = true;
@@ -602,7 +677,22 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		if (!process(static_cast<int>(stage.iterationsG), stage))
 			return false;
 
-		readHistogramData(cl_histogram, 1, stage);
+		if (hybrid)
+		{
+			generateOnlyInRegion = !generateOnlyInRegion;
+
+			auto histogramA = cl_histogram.data;
+
+			if (!process(static_cast<int>(stage.iterationsG), stage))
+				return false;
+
+			for (int i = 0; i < cl_histogram.data.size(); ++i)
+				cl_histogram.data[i] += histogramA[i];
+
+			generateOnlyInRegion = !generateOnlyInRegion;
+		}
+
+		readHistogramData(cl_histogram, 1, stage, hybrid && !generateOnlyInRegion);
 
 		clearHistogram();
 		componentOverride = true;
@@ -614,7 +704,22 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		if (!process(static_cast<int>(stage.iterationsB), stage))
 			return false;
 
-		readHistogramData(cl_histogram, 2, stage);
+		if (hybrid)
+		{
+			generateOnlyInRegion = !generateOnlyInRegion;
+
+			auto histogramA = cl_histogram.data;
+
+			if (!process(static_cast<int>(stage.iterationsB), stage))
+				return false;
+
+			for (int i = 0; i < cl_histogram.data.size(); ++i)
+				cl_histogram.data[i] += histogramA[i];
+
+			generateOnlyInRegion = !generateOnlyInRegion;
+		}
+
+		readHistogramData(cl_histogram, 2, stage, hybrid && !generateOnlyInRegion);
 
 		clearHistogram();
 		componentOverride = true;
@@ -625,6 +730,21 @@ bool BuddhabrotRenderer::processFrame(const Stage& stage, const int step)
 		print("Processing greyscale channel... ");
 		if (!process(static_cast<int>(stage.iterations), stage))
 			return false;
+
+		if (hybrid)
+		{
+			generateOnlyInRegion = !generateOnlyInRegion;
+
+			auto histogramA = cl_histogram.data;
+
+			if (!process(static_cast<int>(stage.iterations), stage))
+				return false;
+
+			for (int i = 0; i < cl_histogram.data.size(); ++i)
+				cl_histogram.data[i] += histogramA[i];
+
+			generateOnlyInRegion = !generateOnlyInRegion;
+		}
 
 		readHistogramData(cl_histogram, -1, stage);
 	}

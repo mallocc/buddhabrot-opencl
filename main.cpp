@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
 						checkAndSet([&](const std::string& in) { bb.filename = in; });
 					else if (option == "steps")
 						checkAndSet([&](const std::string& in) { stage.steps = std::stoi(in); });
-					
+
 					else if (option == "alpha" || option == "a")
 						checkAndSet([&](const std::string& in) { stage.alpha = std::stof(in); });
 					else if (option == "beta" || option == "b")
@@ -182,6 +182,13 @@ int main(int argc, char* argv[])
 
 					else if (option == "threads" || option == "j" || option == "jobs")
 						checkAndSet([&](const std::string& in) { bb.jobs = std::stoi(in); });
+
+					else if (option == "hybrid")
+						bb.hybrid = true;
+
+					else if (option == "scale")
+						bb.scale = true;
+
 
 					else if (option == "counter-offset")
 						checkAndSet([&](const std::string& in) { bb.counterOffset = std::stoi(in); });
